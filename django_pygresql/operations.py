@@ -1,5 +1,5 @@
 from django.db.backends import BaseDatabaseOperations
-
+import extensions
 
 class DatabaseOperations(BaseDatabaseOperations):
     def __init__(self, connection):
@@ -199,4 +199,22 @@ class DatabaseOperations(BaseDatabaseOperations):
         return "VALUES " + ", ".join([items_sql] * num_values)
 
     def isolation_level_sql(self, level):
-        return "SET TRANSACTION ISOLATION LEVEL %s" % level
+        if level == extensions.ISOLATION_LEVEL_AUTOCOMMIT:
+            return self.set_autocommit_sql(True)
+        elif level == extensions.ISOLATION_LEVEL_READ_UNCOMMITTED:
+            level_str = 'READ UNCOMMITTED'
+        elif level == extensions.ISOLATION_LEVEL_READ_COMMITTED:
+            level_str = 'READ COMMITTED'
+        elif level == extensions.ISOLATION_LEVEL_REPEATABLE_READ:
+            level_str = 'REPEATABLE READ'
+        elif level == extensions.ISOLATION_LEVEL_SERIALIZABLE:
+            level_str = 'SERIALIZABLE'
+        else:
+            return "SET TRANSACTION ISOLATION LEVEL %s"    
+        return "SET TRANSACTION ISOLATION LEVEL %s" % level_str
+
+    def set_autocommit_sql(self, on=True):
+        return "SET AUTOCOMMIT TO %s" % (on and "ON" or "OFF")
+
+    def set_client_encoding(self, encoding='UTF8'):
+        return "SET CLIENT_ENCODING TO '%s'" % encoding

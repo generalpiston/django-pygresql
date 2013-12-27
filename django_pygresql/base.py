@@ -11,6 +11,7 @@ from operations import DatabaseOperations
 from client import DatabaseClient
 from creation import DatabaseCreation
 from version import get_version
+import extensions
 from introspection import DatabaseIntrospection
 from django.utils.log import getLogger
 # from django.utils.safestring import SafeUnicode, SafeString
@@ -122,7 +123,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
         self.features = DatabaseFeatures(self)
         self.features.uses_autocommit = self.settings_dict["OPTIONS"].get('autocommit', False)
-        self._set_isolation_level("READ COMMITTED")
+        if self.features.uses_autocommit:
+            self._set_isolation_level(extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        else:
+            self._set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
         self.ops = DatabaseOperations(self)
         self.client = DatabaseClient(self)
         self.creation = DatabaseCreation(self)
@@ -190,30 +194,21 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 if settings_dict['PORT'] and int(settings_dict['PORT']) > 0:
                     conn_params['host'] += ":%d" % int(settings_dict['PORT'])
 
+            isolation_level = self.isolation_level
             self.connection = Database.connect(dsn, **conn_params)
-            # self.connection.set_client_encoding('UTF8')
-            # tz = 'UTC' if settings.USE_TZ else settings_dict.get('TIME_ZONE')
-            # if tz:
-            #     try:
-            #         get_parameter_status = self.connection.get_parameter_status
-            #     except AttributeError:
-            #         # psycopg2 < 2.0.12 doesn't have get_parameter_status
-            #         conn_tz = None
-            #     else:
-            #         conn_tz = get_parameter_status('TimeZone')
-
-            #     if conn_tz != tz:
-            #         # Set the time zone in autocommit mode (see #17062)
-            #         # self.connection.set_isolation_level(
-            #         #         psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-            #         self.connection.cursor().execute(
-            #                 self.ops.isolation_level_sql(), [tz])
-            #         self.connection.cursor().execute(
-            #                 self.ops.set_time_zone_sql(), [tz])
+            self.connection.cursor().execute(self.ops.set_client_encoding('UTF8'))
+            tz = 'UTC' if settings.USE_TZ else settings_dict.get('TIME_ZONE')
+            if tz:
+                # Set the time zone in autocommit mode
+                self._set_isolation_level(
+                        extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                self.connection.cursor().execute(
+                        self.ops.set_time_zone_sql(), [tz])
+            self._set_isolation_level(isolation_level)
             self._get_pg_version()
             connection_created.send(sender=self.__class__, connection=self)
         cursor = PyGreSQLCursor(self.connection)
-        cursor.tzinfo_factory = utc_tzinfo_factory if settings.USE_TZ else None
+        # cursor.tzinfo_factory = utc_tzinfo_factory if settings.USE_TZ else None
         return CursorWrapper(cursor)
 
     def _enter_transaction_management(self, managed):
@@ -221,18 +216,16 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         Switch the isolation level when needing transaction support, so that
         the same transaction is visible across all the queries.
         """
-        # if self.features.uses_autocommit and managed and not self.isolation_level:
-        #     self._set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_READ_COMMITTED)
-        pass
+        if self.features.uses_autocommit and managed and not self.isolation_level:
+            self._set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
 
     def _leave_transaction_management(self, managed):
         """
         If the normal operating mode is "autocommit", switch back to that when
         leaving transaction management.
         """
-        # if self.features.uses_autocommit and not managed and self.isolation_level:
-        #     self._set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-        pass
+        if self.features.uses_autocommit and not managed and self.isolation_level:
+            self._set_isolation_level(extensions.ISOLATION_LEVEL_AUTOCOMMIT)
 
     def _set_isolation_level(self, level):
         """
@@ -240,14 +233,17 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         levels. This doesn't touch the uses_autocommit feature, since that
         controls the movement *between* isolation levels.
         """
-        # assert level in range(5)
-        # try:
-        #     if self.connection is not None:
-        #         self.connection.set_isolation_level(level)
-        # finally:
-        #     self.isolation_level = level
-        #     self.features.uses_savepoints = bool(level)
-        pass
+        assert level in range(5)
+        try:
+            if self.connection is not None:
+                if level == ISOLATION_LEVEL_AUTOCOMMIT:
+                    self.connection.cursor().execute(self.ops.set_autocommit_sql(True))
+                else:
+                    self.connection.cursor().execute(self.ops.set_autocommit_sql(False))
+                    self.connection.cursor().execute(self.ops.isolation_level_sql(level))
+        finally:
+            self.isolation_level = level
+            self.features.uses_savepoints = bool(level)
 
     def _commit(self):
         if self.connection is not None:
