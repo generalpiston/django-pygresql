@@ -236,7 +236,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         assert level in range(5)
         try:
             if self.connection is not None:
-                if level == ISOLATION_LEVEL_AUTOCOMMIT:
+                if level == extensions.ISOLATION_LEVEL_AUTOCOMMIT:
                     self.connection.cursor().execute(self.ops.set_autocommit_sql(True))
                 else:
                     self.connection.cursor().execute(self.ops.set_autocommit_sql(False))
