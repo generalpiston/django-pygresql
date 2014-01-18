@@ -63,7 +63,12 @@ class CursorWrapper(object):
     def execute(self, query, args=None):
         try:
             self.query = query
-            return self.cursor.execute(query, args)
+            try:
+                res = self.cursor.execute(query, args)
+                self.cursor.connection.commit()
+            except:
+                self.cursor.connection.rollback()
+            return res
         except Database.IntegrityError, e:
             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
         except Database.DatabaseError, e:
@@ -72,7 +77,12 @@ class CursorWrapper(object):
     def executemany(self, query, args):
         try:
             self.query = query
-            return self.cursor.executemany(query, args)
+            try:
+                res = self.cursor.executemany(query, args)
+                self.cursor.connection.commit()
+            except:
+                self.cursor.connection.rollback()
+            return res
         except Database.IntegrityError, e:
             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
         except Database.DatabaseError, e:
@@ -122,11 +132,11 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         super(DatabaseWrapper, self).__init__(*args, **kwargs)
 
         self.features = DatabaseFeatures(self)
-        self.features.uses_autocommit = self.settings_dict["OPTIONS"].get('autocommit', False)
-        if self.features.uses_autocommit:
-            self._set_isolation_level(extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-        else:
-            self._set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
+        self.features.uses_autocommit = True#self.settings_dict["OPTIONS"].get('autocommit', False)
+        # if self.features.uses_autocommit:
+        #     self._set_isolation_level(extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        # else:
+        #     self._set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
         self.ops = DatabaseOperations(self)
         self.client = DatabaseClient(self)
         self.creation = DatabaseCreation(self)
@@ -194,17 +204,17 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 if settings_dict['PORT'] and int(settings_dict['PORT']) > 0:
                     conn_params['host'] += ":%d" % int(settings_dict['PORT'])
 
-            isolation_level = self.isolation_level
+            # isolation_level = self.isolation_level
             self.connection = Database.connect(dsn, **conn_params)
             self.connection.cursor().execute(self.ops.set_client_encoding('UTF8'))
             tz = 'UTC' if settings.USE_TZ else settings_dict.get('TIME_ZONE')
             if tz:
                 # Set the time zone in autocommit mode
-                self._set_isolation_level(
-                        extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                # self._set_isolation_level(
+                #         extensions.ISOLATION_LEVEL_AUTOCOMMIT)
                 self.connection.cursor().execute(
                         self.ops.set_time_zone_sql(), [tz])
-            self._set_isolation_level(isolation_level)
+            # self._set_isolation_level(isolation_level)
             self._get_pg_version()
             connection_created.send(sender=self.__class__, connection=self)
         cursor = PyGreSQLCursor(self.connection)
@@ -216,16 +226,18 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         Switch the isolation level when needing transaction support, so that
         the same transaction is visible across all the queries.
         """
-        if self.features.uses_autocommit and managed and not self.isolation_level:
-            self._set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
+        # if self.features.uses_autocommit and managed and not self.isolation_level:
+        #     self._set_isolation_level(extensions.ISOLATION_LEVEL_READ_COMMITTED)
+        pass
 
     def _leave_transaction_management(self, managed):
         """
         If the normal operating mode is "autocommit", switch back to that when
         leaving transaction management.
         """
-        if self.features.uses_autocommit and not managed and self.isolation_level:
-            self._set_isolation_level(extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        # if self.features.uses_autocommit and not managed and self.isolation_level:
+        #     self._set_isolation_level(extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        pass
 
     def _set_isolation_level(self, level):
         """
@@ -233,17 +245,19 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         levels. This doesn't touch the uses_autocommit feature, since that
         controls the movement *between* isolation levels.
         """
-        assert level in range(5)
-        try:
-            if self.connection is not None:
-                if level == extensions.ISOLATION_LEVEL_AUTOCOMMIT:
-                    self.connection.cursor().execute(self.ops.set_autocommit_sql(True))
-                else:
-                    self.connection.cursor().execute(self.ops.set_autocommit_sql(False))
-                    self.connection.cursor().execute(self.ops.isolation_level_sql(level))
-        finally:
-            self.isolation_level = level
-            self.features.uses_savepoints = bool(level)
+        # assert level in range(1,5)
+        # try:
+        #     if self.connection is not None:
+        #         if level == extensions.ISOLATION_LEVEL_AUTOCOMMIT:
+        #             self.connection.cursor.commit()
+        #         else:
+        #             # self.connection.cursor.autocommit = False
+        #             self.connection.cursor.commit()
+        #             self.connection.cursor().execute(self.ops.isolation_level_sql(level))
+        # finally:
+        #     self.isolation_level = level
+        #     self.features.uses_savepoints = bool(level)
+        pass
 
     def _commit(self):
         if self.connection is not None:

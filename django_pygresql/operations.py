@@ -199,9 +199,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         return "VALUES " + ", ".join([items_sql] * num_values)
 
     def isolation_level_sql(self, level):
-        if level == extensions.ISOLATION_LEVEL_AUTOCOMMIT:
-            return self.set_autocommit_sql(True)
-        elif level == extensions.ISOLATION_LEVEL_READ_UNCOMMITTED:
+        if level == extensions.ISOLATION_LEVEL_READ_UNCOMMITTED:
             level_str = 'READ UNCOMMITTED'
         elif level == extensions.ISOLATION_LEVEL_READ_COMMITTED:
             level_str = 'READ COMMITTED'
